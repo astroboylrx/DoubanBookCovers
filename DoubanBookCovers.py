@@ -8,7 +8,30 @@ from io import BytesIO
 from pathlib import Path
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import pyqtSlot
- 
+
+class TimerMessageBox(QtWidgets.QMessageBox):
+    def __init__(self, msg, timeout=3, parent=None):
+        super(TimerMessageBox, self).__init__(parent)
+        self.setWindowTitle("Notice")
+        self.time_to_wait = timeout
+        self.msg = msg
+        self.setText(self.msg+"（此提示会在 {0} 秒内自动关闭)".format(timeout))
+        self.setStandardButtons(QtWidgets.QMessageBox.NoButton)
+        self.timer = QtCore.QTimer(self)
+        self.timer.setInterval(1000)
+        self.timer.timeout.connect(self.changeContent)
+        self.timer.start()
+
+    def changeContent(self):
+        self.setText(self.msg+"（此提示会在 {0} 秒内自动关闭)".format(self.time_to_wait))
+        self.time_to_wait -= 1
+        if self.time_to_wait <= 0:
+            self.close()
+
+    def closeEvent(self, event):
+        self.timer.stop()
+        event.accept()
+
 class App(QtWidgets.QMainWindow):
  
     def __init__(self):
@@ -23,33 +46,48 @@ class App(QtWidgets.QMainWindow):
     def initUI(self):
         self.setWindowTitle(self.title)
         self.setGeometry(self.left, self.top, self.width, self.height)
-        
-        self.genbtn = QtWidgets.QPushButton('生成', self)
-        self.genbtn.setGeometry(QtCore.QRect(85, 420, 150, 40))
-        self.genbtn.setObjectName("genbtn")
-        self.genbtn.clicked.connect(self.on_click)
 
-        self.userlabel = QtWidgets.QLabel('用户id', self)
-        self.userlabel.setGeometry(QtCore.QRect(40, 40, 41, 25))
-        self.userlabel.setAlignment(QtCore.Qt.AlignCenter)
-        self.userlabel.setObjectName("userlabel")
-        self.date1label = QtWidgets.QLabel("起始日期 (格式:YYYY-MM-DD)", self)
-        self.date1label.setGeometry(QtCore.QRect(40, 150, 181, 25))
-        self.date1label.setAlignment(QtCore.Qt.AlignCenter)
-        self.date1label.setObjectName("date1label")
-        self.date2label = QtWidgets.QLabel("终止日期 (格式:YYYY-MM-DD)", self)
-        self.date2label.setGeometry(QtCore.QRect(40, 260, 181, 25))
-        self.date2label.setAlignment(QtCore.Qt.AlignCenter)
-        self.date2label.setObjectName("date2label")
+        self.user_label = QtWidgets.QLabel('用户id', self)
+        self.user_label.setGeometry(QtCore.QRect(40, 25, 41, 25))
+        self.user_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.user_label.setObjectName("user_label")
+
         self.user_id = QtWidgets.QPlainTextEdit('user_id_12345', self)
-        self.user_id.setGeometry(QtCore.QRect(50, 80, 220, 30))
+        self.user_id.setGeometry(QtCore.QRect(50, 65, 220, 30))
         self.user_id.setObjectName("user_id")
+
+        self.date1_label = QtWidgets.QLabel("起始日期 (格式:YYYY-MM-DD)", self)
+        self.date1_label.setGeometry(QtCore.QRect(40, 130, 181, 25))
+        self.date1_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.date1_label.setObjectName("date1_label")
+
         self.start_date = QtWidgets.QPlainTextEdit('2018-01-01', self)
-        self.start_date.setGeometry(QtCore.QRect(50, 190, 220, 30))
+        self.start_date.setGeometry(QtCore.QRect(50, 170, 220, 30))
         self.start_date.setObjectName("start_date")
+
+        self.date2_label = QtWidgets.QLabel("终止日期 (格式:YYYY-MM-DD)", self)
+        self.date2_label.setGeometry(QtCore.QRect(40, 235, 181, 25))
+        self.date2_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.date2_label.setObjectName("date2_label")
+        
         self.end_date = QtWidgets.QPlainTextEdit('2018-12-01', self)
-        self.end_date.setGeometry(QtCore.QRect(50, 300, 220, 30))
+        self.end_date.setGeometry(QtCore.QRect(50, 265, 220, 30))
         self.end_date.setObjectName("end_date")
+
+        self.column_label = QtWidgets.QLabel("封面墙分几列（每行几本书）", self)
+        self.column_label.setGeometry(QtCore.QRect(40, 330, 181, 25))
+        self.date2_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.date2_label.setObjectName("column_label")
+
+        self.num_cln = QtWidgets.QPlainTextEdit('5', self)
+        self.num_cln.setGeometry(QtCore.QRect(50, 360, 220, 30))
+        self.num_cln.setObjectName("num_cln")
+
+        self.gen_btn = QtWidgets.QPushButton('生成', self)
+        self.gen_btn.setGeometry(QtCore.QRect(85, 420, 150, 40))
+        self.gen_btn.setObjectName("gen_btn")
+        self.gen_btn.clicked.connect(self.on_click)
+
         self.progress = QtWidgets.QProgressBar(self)
         self.progress.setGeometry(QtCore.QRect(30, 455, 260, 25))
         self.progress.setObjectName("progress_bar")
@@ -62,6 +100,15 @@ class App(QtWidgets.QMainWindow):
         self.uid = self.user_id.toPlainText()
         self.date1 = self.start_date.toPlainText()
         self.date2 = self.end_date.toPlainText()
+        
+        try:
+            self.books_per_row = int(self.num_cln.toPlainText())
+            if self.books_per_row < 0:
+                raise ValueError("Negative integer is not allowed")
+        except ValueError as e:
+            print(e)
+            QtWidgets.QMessageBox.question(self, "Warning", "请在“封面墙分几列”里输入正整数", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok)
+            return None
 
         self.progress.setValue(5)
         QtWidgets.QApplication.processEvents()
@@ -123,23 +170,46 @@ class App(QtWidgets.QMainWindow):
             rating = [0, 0, 0, 0, 0]
             for i, item in enumerate(self.data['collections']):
                 if 'rating' in item:
-                    rating[int(item['rating']['value'])-1] += 1
+                    try:
+                        rating[int(item['rating']['value'])-1] += 1
+                    except Exception as e:
+                        print(e)
                 if 'pages' in item['book']:
-                    if item['book']['pages'][-1] == '页':
-                        item['book']['pages'] = item['book']['pages'][:-1]
-                    total_pages += int(item['book']['pages'])
+                    try:
+                        if item['book']['pages'][-1] == '页':
+                            item['book']['pages'] = item['book']['pages'][:-1]
+                        if item['book']['pages'][-1] == '頁':
+                            item['book']['pages'] = item['book']['pages'][:-1]
+                        total_pages += int(item['book']['pages'])
+                    except Exception as e:
+                        print(e)
                 if 'price' in item['book']:
                     try:
-                        if len(item['book']['price']) > 0:
+                        if len(item['book']['price']) > 4:
                             if item['book']['price'][-1] == '元':
                                 item['book']['price'] = item['book']['price'][:-1]
+                            elif item['book']['price'][:3] == 'CNY':
+                                item['book']['price'] = item['book']['price'][3:]
+                            elif item['book']['price'][:3] == 'USD':
+                                item['book']['price'] = str(float(item['book']['price'][3:]) * 6.8)
+                            elif item['book']['price'][0] == '$':
+                                item['book']['price'] = str(float(item['book']['price'][1:]) * 6.8)
+                            elif item['book']['price'][:3] == 'GBP':
+                                item['book']['price'] = str(float(item['book']['price'][3:]) * 9.0)
+                            elif item['book']['price'][:3] == 'NTD':
+                                item['book']['price'] = str(float(item['book']['price'][3:]) / 5.0)
+                            elif item['book']['price'][:3] == 'NT$':
+                                item['book']['price'] = str(float(item['book']['price'][3:]) / 5.0)
+                            elif item['book']['price'][:3] == 'HKD':
+                                item['book']['price'] = str(float(item['book']['price'][3:]) * 0.9)
                             tmp_price = float(item['book']['price'])
                             total_price += tmp_price
                     except Exception as e:
                         print(e)
             
+            total_days = (dt.strptime(self.date2, "%Y-%m-%d") - dt.strptime(self.date1, "%Y-%m-%d")).days
             QtWidgets.QMessageBox.information(self, "Info", 
-                "您总共读了 {} 本书\n平均 {:.2f} 天读一本\n合计 {} 页，约 {} 元\n其中您给\n{} 本书打了五星\n{} 本书打了四星\n{} 本书打了三星\n{} 本书打了二星\n{} 本书打了一星".format(self.num_books, 365/self.num_books, total_pages, total_price, rating[4], rating[3], rating[2], rating[1], rating[0]))
+                "您总共读了 {} 本书\n平均 {:.2f} 天读一本\n合计 {} 页，约 {} 元\n其中您给\n{} 本书打了五星\n{} 本书打了四星\n{} 本书打了三星\n{} 本书打了二星\n{} 本书打了一星".format(self.num_books, total_days/self.num_books, total_pages, total_price, rating[4], rating[3], rating[2], rating[1], rating[0]))
 
             self.progress.setValue(100)
             QtWidgets.QApplication.processEvents()
@@ -162,7 +232,7 @@ class App(QtWidgets.QMainWindow):
         self.progress.setValue(10)
         QtWidgets.QApplication.processEvents()
 
-        self.url = "https://api.douban.com/v2/book/user/"+self.uid+"//collections?status=read&from="+self.date1+"T00:00:00+08:00&to="+self.date2+"T00:00:00+08:00&count=30"
+        self.url = "https://api.douban.com/v2/book/user/"+self.uid+"//collections?status=read&from="+self.date1+"T00:00:00+08:00&to="+self.date2+"T00:00:00+08:00&count=30&start=0"
         
         self.progress.setValue(15)
         QtWidgets.QApplication.processEvents()
@@ -172,6 +242,7 @@ class App(QtWidgets.QMainWindow):
 
         self.progress.setValue(25)
         QtWidgets.QApplication.processEvents()
+
         if 'msg' in self.data:
             if self.data['msg'] == 'uri_not_found':
                 return 2
@@ -185,11 +256,20 @@ class App(QtWidgets.QMainWindow):
         try:
             self.num_books = int(self.data['total'])
             if self.num_books > 30:
-                self.url = "https://api.douban.com/v2/book/user/"+self.uid+"//collections?status=read&from="+self.date1+"T00:00:00+08:00&to="+self.date2+"T00:00:00+08:00&count="+str(2*self.num_books)
-                self.raw_data = requests.get(self.url)
-                self.raw_data.encoding = 'utf-8'
-                self.data = json.loads(self.raw_data.text)
+                
+                tmp_messagebox = TimerMessageBox("书本数量比较多，请耐心等待", timeout=5, parent=self)
+                tmp_messagebox.exec_()
 
+                tmp_start = 30
+                tmp_remaining = self.num_books - 30
+                while tmp_remaining > 0:
+                    self.url = "https://api.douban.com/v2/book/user/"+self.uid+"//collections?status=read&from="+self.date1+"T00:00:00+08:00&to="+self.date2+"T00:00:00+08:00&count=100&start="+str(tmp_start)
+                    self.raw_data = requests.get(self.url)
+                    self.raw_data.encoding = 'utf-8'
+                    self.data['collections'].extend(json.loads(self.raw_data.text)['collections'])
+                    tmp_start += 100
+                    tmp_remaining -= 100
+            
             self.progress.setValue(40)
             QtWidgets.QApplication.processEvents()
             
@@ -204,7 +284,7 @@ class App(QtWidgets.QMainWindow):
             QtWidgets.QApplication.processEvents()
 
             # now draw the cover wall!
-            item_per_row = 6
+            item_per_row = self.books_per_row
             num_rows = self.num_books // item_per_row
             if self.num_books % item_per_row > 0:
                 num_rows += 1
@@ -213,9 +293,10 @@ class App(QtWidgets.QMainWindow):
             QtWidgets.QApplication.processEvents()
             
             fig = plt.figure(figsize=(item_per_row*325/200, num_rows*500/200), dpi=200)
+            row_height = 1-1/num_rows
             for i in range(self.num_books):
                 #print([i%6*(1/6), i//6*0.2, 1/6, 0.2])
-                ax = fig.add_axes(plt.Axes(fig, [i%item_per_row*(1/item_per_row), i//item_per_row*(1/num_rows), 1/item_per_row, 1/num_rows]))
+                ax = fig.add_axes(plt.Axes(fig, [i%item_per_row*(1/item_per_row), row_height-(i//item_per_row*(1/num_rows)), 1/item_per_row, 1/num_rows]))
                 ax.imshow(self.book_covers[i], aspect='auto')
                 ax.axis('off')
                 
