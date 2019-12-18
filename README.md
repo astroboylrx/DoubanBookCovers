@@ -12,7 +12,7 @@
 
 用户界面如下
 
-![UI](./pics/UI.png "UI")
+<center><img src="./pics/UI.png" width="400"></center>
 
 用户id在你的豆瓣个人主页网址中，在people后面：https://www.douban.com/people/user_id_here/
 
