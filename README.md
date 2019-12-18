@@ -4,8 +4,8 @@
 
 # Download
 
-下载链接：[Mac](https://github.com/astroboylrx/DoubanBookCovers/releases/download/v1.1/DoubanBookCovers-Mac.app.zip)
-下载链接：[Windows](https://github.com/astroboylrx/DoubanBookCovers/releases/download/v1.1/DoubanBookCovers-Windows.zip)
+下载链接：[Mac](https://github.com/astroboylrx/DoubanBookCovers/releases/download/v1.2/DoubanBookCovers-Mac.app.zip)
+下载链接：[Windows](https://github.com/astroboylrx/DoubanBookCovers/releases/download/v1.2/DoubanBookCovers-Windows.zip)
 
 
 # Usage
