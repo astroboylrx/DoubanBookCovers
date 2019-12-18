@@ -61,7 +61,7 @@ class App(QtWidgets.QMainWindow):
         self.date1_label.setAlignment(QtCore.Qt.AlignCenter)
         self.date1_label.setObjectName("date1_label")
 
-        self.start_date = QtWidgets.QPlainTextEdit('2018-01-01', self)
+        self.start_date = QtWidgets.QPlainTextEdit('2019-01-01', self)
         self.start_date.setGeometry(QtCore.QRect(50, 170, 220, 30))
         self.start_date.setObjectName("start_date")
 
@@ -70,7 +70,7 @@ class App(QtWidgets.QMainWindow):
         self.date2_label.setAlignment(QtCore.Qt.AlignCenter)
         self.date2_label.setObjectName("date2_label")
         
-        self.end_date = QtWidgets.QPlainTextEdit('2018-12-01', self)
+        self.end_date = QtWidgets.QPlainTextEdit('2019-12-31', self)
         self.end_date.setGeometry(QtCore.QRect(50, 265, 220, 30))
         self.end_date.setObjectName("end_date")
 
@@ -114,7 +114,7 @@ class App(QtWidgets.QMainWindow):
         QtWidgets.QApplication.processEvents()
 
         res = self.get_read()
-
+        
         if type(res) is int:
             if res == 1:
                 QtWidgets.QMessageBox.question(self, "Warning", "日期格式有误", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok)
@@ -126,16 +126,19 @@ class App(QtWidgets.QMainWindow):
                 QtWidgets.QMessageBox.information(self, "Info", "豆瓣说在此期间没有阅读记录", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok) 
                 return None
             elif res == 4:
+                QtWidgets.QMessageBox.information(self, "Warning", "目前的apikey失效了：豆瓣可能更换或关闭了访问数据的端口，暂时无能为力了", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok) 
+                return None
+            elif res == 5:
                 QtWidgets.QMessageBox.question(self, "Warning", "可能获取数据失败，总之程序出错了", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok) 
                 return None
             else:
                 QtWidgets.QMessageBox.question(self, "Warning", "可能获取数据失败，总之程序出错了", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok) 
                 return None
-
+        
         save_dialog = QtWidgets.QFileDialog()
         save_dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
-        book_cover_path = save_dialog.getSaveFileName(self, '保存封面墙图片', str(Path.home())+"/封面墙.jpg",
-                                                filter='JPEG Files(*.jpg);; PNG Files(*.png)')
+        book_cover_path = save_dialog.getSaveFileName(self, '保存封面墙图片', str(Path.home())+"/封面墙.jpg", 
+                                                      filter='JPEG Files(*.jpg);; PNG Files(*.png)')
         
         self.progress.setValue(75)
         QtWidgets.QApplication.processEvents()  
@@ -156,8 +159,8 @@ class App(QtWidgets.QMainWindow):
         ax.set_xlabel("Month"); ax.set_ylabel("# of Books Read"); ax.set_title("Report")
         ax.grid()
 
-        book_cover_path = save_dialog.getSaveFileName(self, '保存月度阅读统计', str(Path.home())+"/月度阅读统计.jpg",
-                                                filter='JPEG Files(*.jpg);; PNG Files(*.png)')
+        book_cover_path = save_dialog.getSaveFileName(self, '保存月度阅读统计', str(Path.home())+"/月度阅读统计.jpg", 
+                                                      filter='JPEG Files(*.jpg);; PNG Files(*.png)')
 
         fig.savefig(book_cover_path[0], bbox_inches='tight')
 
@@ -232,11 +235,12 @@ class App(QtWidgets.QMainWindow):
         self.progress.setValue(10)
         QtWidgets.QApplication.processEvents()
 
-        self.url = "https://api.douban.com/v2/book/user/"+self.uid+"//collections?status=read&from="+self.date1+"T00:00:00+08:00&to="+self.date2+"T00:00:00+08:00&count=30&start=0"
+        self.url = "https://api.douban.com/v2/book/user/"+self.uid+"//collections?status=read&from="+self.date1+"T00:00:00+08:00&to="+self.date2+"T00:00:00+08:00&count=30&start=0&apikey=0df993c66c0c636e29ecbb5344252a4a"
+        self.user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.90 Safari/537.36"
         
         self.progress.setValue(15)
         QtWidgets.QApplication.processEvents()
-        self.raw_data = requests.get(self.url)
+        self.raw_data = requests.get(self.url, headers={'User-Agent': self.user_agent})
         self.raw_data.encoding = 'utf-8'
         self.data = json.loads(self.raw_data.text)
 
@@ -246,6 +250,8 @@ class App(QtWidgets.QMainWindow):
         if 'msg' in self.data:
             if self.data['msg'] == 'uri_not_found':
                 return 2
+            if self.data['msg'].find("invalid_apikey") != -1:
+                return 4
         
         if 'total' in self.data:
             if int(self.data['total']) == 0:
@@ -257,14 +263,14 @@ class App(QtWidgets.QMainWindow):
             self.num_books = int(self.data['total'])
             if self.num_books > 30:
                 
-                tmp_messagebox = TimerMessageBox("书本数量比较多，请耐心等待", timeout=5, parent=self)
+                tmp_messagebox = TimerMessageBox("书本数量比较多，请耐心等待", timeout=3, parent=self)
                 tmp_messagebox.exec_()
 
                 tmp_start = 30
                 tmp_remaining = self.num_books - 30
                 while tmp_remaining > 0:
-                    self.url = "https://api.douban.com/v2/book/user/"+self.uid+"//collections?status=read&from="+self.date1+"T00:00:00+08:00&to="+self.date2+"T00:00:00+08:00&count=100&start="+str(tmp_start)
-                    self.raw_data = requests.get(self.url)
+                    self.url = "https://api.douban.com/v2/book/user/"+self.uid+"//collections?status=read&from="+self.date1+"T00:00:00+08:00&to="+self.date2+"T00:00:00+08:00&count=100&start="+str(tmp_start)+"&apikey=0df993c66c0c636e29ecbb5344252a4a"
+                    self.raw_data = requests.get(self.url, headers={'User-Agent': self.user_agent})
                     self.raw_data.encoding = 'utf-8'
                     self.data['collections'].extend(json.loads(self.raw_data.text)['collections'])
                     tmp_start += 100
@@ -277,12 +283,12 @@ class App(QtWidgets.QMainWindow):
             self.book_covers = []
             for i, item in enumerate(self.data['collections']):
                 img_url = item['book']['image']
-                self.book_covers.append(Image.open(BytesIO(requests.get(img_url).content)))
+                self.book_covers.append(Image.open(BytesIO(requests.get(img_url, headers={'User-Agent': self.user_agent}).content)))
                 self.book_covers[-1].thumbnail((500, 325), Image.ANTIALIAS)
             
             self.progress.setValue(55)
             QtWidgets.QApplication.processEvents()
-
+            
             # now draw the cover wall!
             item_per_row = self.books_per_row
             num_rows = self.num_books // item_per_row
@@ -305,7 +311,7 @@ class App(QtWidgets.QMainWindow):
         
         except Exception as e:
             print(e)
-            return 4
+            return 5
  
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
