@@ -178,6 +178,9 @@ class BookInfo:
         else:
             self.info_list = []
             self.info_dict = {}
+        if '页数' in self.info_dict:
+            if self.info_dict['页数'][-1] == '页':
+                self.info_dict['页数'] = self.info_dict['页数'][:-1]
         #print(self.info_list)
         #print(self.info_dict)
         return None
@@ -375,7 +378,7 @@ class App(QtWidgets.QMainWindow):
                     if item.rating is not None:
                         rating[item.rating-1] += 1
 
-                    self.progress.setValue(82+int(15 * i / self.num_books))
+                    self.progress.setValue(min(82+int(15 * i / self.num_books), 97))
                     self.status_label.setText("从豆瓣图书获取：第"+str(i+1)+'/'+str(self.num_books)+"本"+'。'*(i%3+1))
                     QtWidgets.QApplication.processEvents() 
                     
@@ -405,7 +408,7 @@ class App(QtWidgets.QMainWindow):
                                 if tmp_price[-1] == '元':
                                     tmp_price = tmp_price[:-1]
                                 if tmp_price[0] == '¥':
-                                    tmp_price = tmp_price[:-1]
+                                    tmp_price = tmp_price[1:]
                                 if tmp_price[:3] == 'CNY':
                                     tmp_price = tmp_price[3:]
                                 if tmp_price[:3] == 'USD':
@@ -417,15 +420,16 @@ class App(QtWidgets.QMainWindow):
                                 if tmp_price[:3] == 'NTD':
                                     tmp_price = str(float(tmp_price[3:]) / 5.0)
                                 if tmp_price[-2:] == '台币':
-                                    tmp_price = str(float(tmp_price[3:]) / 5.0)
+                                    tmp_price = str(float(tmp_price[:-2]) / 5.0)
                                 if tmp_price[:3] == 'NT$':
                                     tmp_price = str(float(tmp_price[3:]) / 5.0)
                                 if tmp_price[:3] == 'HKD':
                                     tmp_price = str(float(tmp_price[3:]) * 0.9)
                                 if tmp_price[:3] == 'HK$':
                                     tmp_price = str(float(tmp_price[3:]) * 0.9)
-                                tmp_price = float(tmp_price)
-                                total_price += tmp_price
+                                if len(tmp_price) > 0:
+                                    tmp_price = float(tmp_price)
+                                    total_price += tmp_price
                         except Exception as e:
                             print(e)
                             continue
