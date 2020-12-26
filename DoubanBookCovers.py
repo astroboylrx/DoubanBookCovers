@@ -1,3 +1,4 @@
+import os
 import sys
 import random
 import requests
@@ -10,6 +11,36 @@ from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import pyqtSlot, QEventLoop, QTimer
 from bs4 import BeautifulSoup
 from subprocess import Popen, PIPE
+
+def q_sleep(t_s):
+    loop = QEventLoop()
+    QTimer.singleShot(int(t_s * 1000), loop.quit)
+    loop.exec_()
+
+def get_from_safari(url):
+
+    scpt = '''
+            on run {input_url}
+                tell application "Safari"
+                    tell window 1
+                        set current tab to (make new tab with properties {URL:input_url})
+                        -- make sure the page is loaded
+                        repeat while current tab's source = ""
+                            delay 0.5
+                        end repeat
+                        -- wait a bit to make douban.com less suspicious
+                        set delay_4_close to (random number from 2.5 to 6.0)
+                        delay delay_4_close
+                        set pageSource to the source of the current tab
+                        close current tab
+                    end tell
+                end tell
+                return pageSource
+            end run'''
+    
+    p = Popen(['osascript', '-'] + [url], stdin=PIPE, stdout=PIPE, stderr=PIPE)
+    stdout, stderr = p.communicate(scpt.encode('utf-8'))
+    return p.returncode, stdout, stderr
 
 class BookInfo:
     
@@ -103,30 +134,53 @@ class BookInfo:
         return self.book_ID != other.book_ID
 
     def get_more_info(self):
-
+        
+        """ This method easily triggers anti-crawling policy
         headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36'}
         r = requests.get(self.book_url, headers=headers)
-        soup = BeautifulSoup(r.text, "html.parser")
-        self.info_list = soup.find_all("div", id='info')[0].text
-        
-        self.info_list = [x for x in [x.lstrip().rstrip() for x in self.info_list.split('\n')] if len(x) > 0]
-        self.info_dict = {}; 
-        i = 0
-        while i < len(self.info_list):
-            if self.info_list[i][-1] == ':' and i < len(self.info_list) - 1:
-                self.info_dict[self.info_list[i][:-1].lstrip().rstrip()] = self.info_list[i+1].lstrip().rstrip()
-                j = i + 2
-                while self.info_list[j].find(':') == -1:
-                    self.info_dict[self.info_list[i][:-1].lstrip().rstrip()] += self.info_list[j].lstrip().rstrip()
-                    j += 1
-                i = j
-            elif self.info_list[i].find(':') != -1:
-                tmp_list = self.info_list[i].split(':')
-                self.info_dict[tmp_list[0].lstrip().rstrip()] = tmp_list[1].lstrip().rstrip()
-                i += 1
-            else:
-                print("Warning: there seems to be an invalid info entry: "+self.info_list[i]+" | proceed for now...")
-                i += 1
+        if r.text.find("检测到有异常请求从你的 IP 发出") != -1:
+            self.status_label.setText("豆瓣说访问太频繁，让我等60秒再试一次")
+            QtWidgets.QApplication.processEvents()
+            q_sleep(60)
+            r = requests.get(self.book_url, headers=headers)
+            if r.text.find("检测到有异常请求从你的 IP 发出") != -1:
+                return 4
+        """
+
+        returncode, stdout, stderr = get_from_safari(self.book_url)
+        if returncode != 0:
+            return 11
+        if stdout.decode('utf-8').find("检测到有异常请求从你的 IP 发出") != -1:
+            return 4
+
+        soup = BeautifulSoup(stdout, "html.parser")
+        if (len(soup.find_all("div", id='info'))) > 0:
+            self.info_list = soup.find_all("div", id='info')[0].text
+            
+            self.info_list = [x for x in [x.lstrip().rstrip() for x in self.info_list.split('\n')] if len(x) > 0]
+            self.info_dict = {}; 
+            i = 0
+            while i < len(self.info_list):
+                if self.info_list[i][-1] == ':' and i < len(self.info_list) - 1:
+                    self.info_dict[self.info_list[i][:-1].lstrip().rstrip()] = self.info_list[i+1].lstrip().rstrip()
+                    j = i + 2
+                    while self.info_list[j].find(':') == -1 and j < len(self.info_list):
+                        self.info_dict[self.info_list[i][:-1].lstrip().rstrip()] += self.info_list[j].lstrip().rstrip()
+                        j += 1
+                    i = j
+                elif self.info_list[i].find(':') != -1:
+                    tmp_list = self.info_list[i].split(':')
+                    self.info_dict[tmp_list[0].lstrip().rstrip()] = tmp_list[1].lstrip().rstrip()
+                    i += 1
+                else:
+                    print("Warning: there seems to be an invalid info entry: "+self.info_list[i]+" | proceed for now...")
+                    i += 1
+        else:
+            self.info_list = []
+            self.info_dict = {}
+        #print(self.info_list)
+        #print(self.info_dict)
+        return None
 
 class TimerMessageBox(QtWidgets.QMessageBox):
     def __init__(self, msg, timeout=3, parent=None):
@@ -150,11 +204,6 @@ class TimerMessageBox(QtWidgets.QMessageBox):
     def closeEvent(self, event):
         self.timer.stop()
         event.accept()
-
-def q_sleep(t_s):
-    loop = QEventLoop()
-    QTimer.singleShot(int(t_s * 1000), loop.quit)
-    loop.exec_()
 
 class App(QtWidgets.QMainWindow):
  
@@ -220,8 +269,8 @@ class App(QtWidgets.QMainWindow):
         self.num_cln.setObjectName("num_cln")
 
         ng += 1
-        self.stats_flag = QtWidgets.QCheckBox("是否生成评分、页数等统计数据？", self)
-        self.stats_flag.setGeometry(QtCore.QRect(label_x_pos, 20+nl*gspace+ng*hspace, 230, label_height))
+        self.stats_flag = QtWidgets.QCheckBox("是否统计总页数、价格（需运行更久）？", self)
+        self.stats_flag.setGeometry(QtCore.QRect(label_x_pos-10, 20+nl*gspace+ng*hspace, 275, label_height))
         self.stats_flag.setObjectName("stats_flag")
 
         nl += 1
@@ -263,39 +312,9 @@ class App(QtWidgets.QMainWindow):
         QtWidgets.QApplication.processEvents()
         
         res = self.get_read()
-        
         if type(res) is int:
-            self.status_label.setText("出错了。。。")
-            if res == 1:
-                QtWidgets.QMessageBox.question(self, "Warning", "日期格式有误", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok)
-                return None
-            elif res == 10:
-                QtWidgets.QMessageBox.question(self, "Warning", "似乎无法调用Safari浏览器，可能没有相关权限？", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok)
-                return None
-            elif res == 11:
-                QtWidgets.QMessageBox.question(self, "Warning", "似乎无法调用Safari浏览器（可是之前已经成功调用过了，但是这次失败了。。。）", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok)
-                return None
-            elif res == 2:
-                QtWidgets.QMessageBox.question(self, "Warning", "该用户似乎不存在，无法获取数据，请检查用户id是否正确", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok) 
-                return None
-            elif res == 21:
-                QtWidgets.QMessageBox.question(self, "Warning", "豆瓣说:“Not Found。你要的东西不在这, 到别处看看吧。” 请检查用户id是否正确", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok) 
-                return None
-            elif res == 3:
-                QtWidgets.QMessageBox.information(self, "Info", "豆瓣说"+self.user_name+"在此期间没有阅读记录", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok) 
-                return None
-            elif res == 31:
-                QtWidgets.QMessageBox.information(self, "Info", "豆瓣说该用户没有阅读记录。。。", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok) 
-                return None
-            elif res == 4:
-                QtWidgets.QMessageBox.information(self, "Warning", "豆瓣说：“检测到有异常请求从你的 IP 发出，请登录使用豆瓣”。大概率是访问太频繁了，请过一段时间再试。", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok) 
-                return None
-            elif res == 5:
-                QtWidgets.QMessageBox.question(self, "Warning", "可能获取数据失败，总之程序出错了", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok) 
-                return None
-            else:
-                QtWidgets.QMessageBox.question(self, "Warning", "可能获取数据失败，总之程序出错了", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok) 
-                return None
+            self.handle_error(res)
+            return None
         
         self.status_label.setText("封面墙绘制完成，请保存")
         QtWidgets.QApplication.processEvents()
@@ -309,7 +328,6 @@ class App(QtWidgets.QMainWindow):
             res.savefig(book_cover_path[0], dpi=200)
             self.status_label.setText("现在开始统计月度读书数量")
         else:
-            print("here")
             self.status_label.setText("看来您取消了保存封面墙图片")
             QtWidgets.QApplication.processEvents()
             
@@ -326,7 +344,7 @@ class App(QtWidgets.QMainWindow):
         ax.set_xticks([1,2,3,4,5,6,7,8,9,10,11,12])
         ax.set_xlabel("Month"); ax.set_ylabel("# of Books Read"); ax.set_title("Report")
         ax.grid()
-
+        
         self.progress.setValue(80)
         self.status_label.setText("月度阅读统计图绘制完成，请保存")
         QtWidgets.QApplication.processEvents()
@@ -339,6 +357,7 @@ class App(QtWidgets.QMainWindow):
             self.status_label.setText("看来您取消了保存月度阅读统计图")
             QtWidgets.QApplication.processEvents()
             q_sleep(2)
+        
         self.progress.setValue(82)
         QtWidgets.QApplication.processEvents()        
 
@@ -355,14 +374,19 @@ class App(QtWidgets.QMainWindow):
                 for i, item in enumerate(self.valid_books):
                     if item.rating is not None:
                         rating[item.rating-1] += 1
-                        
+
+                    self.progress.setValue(82+int(15 * i / self.num_books))
+                    self.status_label.setText("从豆瓣图书获取：第"+str(i+1)+'/'+str(self.num_books)+"本"+'。'*(i%3+1))
+                    QtWidgets.QApplication.processEvents() 
+                    
                     try:
                         q_sleep(0.75 + random.random()) # let's wait a bit to make douban.com less suspicious
-                        item.get_more_info()
-                        self.progress.setValue(82+int(15 * i / self.num_books))
-                        self.status_label.setText("从豆瓣图书获取数据"+str(i+1)+"次"+'。'*(i%3+1))
-                        QtWidgets.QApplication.processEvents()
-
+                        if i % 10 == 0:
+                            q_sleep(45 + 10 * random.random()) # let's wait a bit to make douban.com less suspicious
+                        res = item.get_more_info()
+                        if type(res) is int:
+                            self.handle_error(res)
+                            continue
                     except Exception as e:
                         print(e)
                         continue
@@ -372,6 +396,7 @@ class App(QtWidgets.QMainWindow):
                             total_pages += int(item.info_dict['页数'])
                         except Exception as e:
                             print(e)
+                            continue
 
                     if '定价' in item.info_dict:
                         tmp_price = item.info_dict['定价']
@@ -403,6 +428,7 @@ class App(QtWidgets.QMainWindow):
                                 total_price += tmp_price
                         except Exception as e:
                             print(e)
+                            continue
                 
                 self.status_label.setText("成功获取所需图书数据")
                 QtWidgets.QApplication.processEvents()
@@ -438,34 +464,14 @@ class App(QtWidgets.QMainWindow):
         self.progress.setValue(10)
         QtWidgets.QApplication.processEvents()
 
-        scpt = '''
-            on run {input_url}
-                tell application "Safari"
-                    tell window 1
-                        set current tab to (make new tab with properties {URL:input_url})
-                        -- make sure the page is loaded
-                        repeat while current tab's source = ""
-                            delay 0.5
-                        end repeat                        
-                        set pageSource to the source of the current tab
-                        -- wait a bit to make douban.com less suspicious
-                        delay 2.0
-                        close current tab
-                    end tell
-                end tell
-                return pageSource
-            end run'''
-
         tmp_book_start_index = 0
         self.url = "https://book.douban.com/people/"+self.uid+"/collect?start="+str(tmp_book_start_index)+"&sort=time&rating=all&filter=all&mode=grid"
-        p = Popen(['osascript', '-'] + [self.url], stdin=PIPE, stdout=PIPE, stderr=PIPE)
-        stdout, stderr = p.communicate(scpt.encode('utf-8'))
+        returncode, stdout, stderr = get_from_safari(self.url)
         self.status_label.setText("访问豆瓣读书第"+str(tmp_book_start_index+1)+"次")
         QtWidgets.QApplication.processEvents()
 
-        if p.returncode != 0:
+        if returncode != 0:
             return 10
-        
         if stdout.decode('utf-8').find("检测到有异常请求从你的 IP 发出") != -1:
             return 4
         soup = BeautifulSoup(stdout, "html.parser")
@@ -513,10 +519,12 @@ class App(QtWidgets.QMainWindow):
             self.url = "https://book.douban.com/people/"+self.uid+"/collect?start="+str(tmp_book_start_index*15)+"&sort=time&rating=all&filter=all&mode=grid"
             self.status_label.setText("访问豆瓣读书第"+str(tmp_book_start_index+1)+"次")
             QtWidgets.QApplication.processEvents()
-            p = Popen(['osascript', '-'] + [self.url], stdin=PIPE, stdout=PIPE, stderr=PIPE)
-            stdout, stderr = p.communicate(scpt.encode('utf-8'))
-            if p.returncode != 0:
+            returncode, stdout, stderr = get_from_safari(self.url)
+
+            if returncode != 0:
                 return 11
+            if stdout.decode('utf-8').find("检测到有异常请求从你的 IP 发出") != -1:
+                return 4
 
             try:
                 soup = BeautifulSoup(stdout, "html.parser")
@@ -539,9 +547,9 @@ class App(QtWidgets.QMainWindow):
         self.num_books = len(self.valid_books)
         if self.num_books == 0:
             return 3
-
+        
         # get all images for books
-        self.status_label.setText("现在按序下载封面墙的图片")
+        self.status_label.setText("现在按序获取封面墙的"+str(self.num_books)+"图书封面")
         headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36'}
         self.book_covers = []
         for i, item in enumerate(self.valid_books):
@@ -551,10 +559,10 @@ class App(QtWidgets.QMainWindow):
             self.book_covers[-1].thumbnail((500, 325), Image.ANTIALIAS)
             self.progress.setValue(min(40+int(25 * i / self.num_books), 65))
             QtWidgets.QApplication.processEvents()
-            self.status_label.setText("已下载"+str(i+1)+"张图片"+'。'*(i%3+1))
+            self.status_label.setText("已获取"+str(i+1)+'/'+str(self.num_books)+"封面图片"+'。'*(i%3+1))
         
         self.progress.setValue(65)
-        self.status_label.setText("成功下载所有封面墙所需图片！开始绘制。")
+        self.status_label.setText("成功获取所有封面墙所需图片！开始绘制。")
         QtWidgets.QApplication.processEvents()
         
         # now draw the cover wall!
@@ -576,7 +584,43 @@ class App(QtWidgets.QMainWindow):
 
         fig.subplots_adjust(hspace=0, wspace=0)
         return fig
- 
+
+    def handle_error(self, error_code):
+        
+        self.status_label.setText("出错了。。。")
+        QtWidgets.QApplication.processEvents()
+        if error_code == 1:
+            QtWidgets.QMessageBox.question(self, "Warning", "日期格式有误", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok)
+            return None
+        elif error_code == 10:
+            QtWidgets.QMessageBox.question(self, "Warning", "似乎无法调用Safari浏览器，可能没有相关权限？", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok)
+            return None
+        elif error_code == 11:
+            QtWidgets.QMessageBox.question(self, "Warning", "似乎无法调用Safari浏览器（可是之前已经成功调用过了，但是这次失败了。。。）", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok)
+            return None
+        elif error_code == 2:
+            QtWidgets.QMessageBox.question(self, "Warning", "该用户似乎不存在，无法获取数据，请检查用户id是否正确", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok) 
+            return None
+        elif error_code == 21:
+            QtWidgets.QMessageBox.question(self, "Warning", "豆瓣说:“Not Found。你要的东西不在这, 到别处看看吧。” 请检查用户id是否正确", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok) 
+            return None
+        elif error_code == 3:
+            QtWidgets.QMessageBox.information(self, "Info", "豆瓣说"+self.user_name+"在此期间没有阅读记录", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok) 
+            return None
+        elif error_code == 31:
+            QtWidgets.QMessageBox.information(self, "Info", "豆瓣说该用户没有阅读记录。。。", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok) 
+            return None
+        elif error_code == 4:
+            QtWidgets.QMessageBox.information(self, "Warning", "豆瓣说：“检测到有异常请求从你的 IP 发出，请登录使用豆瓣”。大概率是访问太频繁了，请过一段时间再试。", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok) 
+            return None
+        elif error_code == 5:
+            QtWidgets.QMessageBox.question(self, "Warning", "可能获取数据失败，总之程序出错了", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok) 
+            return None
+        else:
+            QtWidgets.QMessageBox.question(self, "Warning", "可能获取数据失败，总之程序出错了", QtWidgets.QMessageBox.Ok, QtWidgets.QMessageBox.Ok) 
+            return None
+
+
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
     #app.setStyle("Fusion")
