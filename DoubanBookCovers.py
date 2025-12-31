@@ -1,11 +1,7 @@
 import os
 import sys
 import random
-import requests
-import matplotlib.pyplot as plt
 from datetime import datetime as dt
-from PIL import Image
-from io import BytesIO
 from pathlib import Path
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import pyqtSlot, QEventLoop, QTimer
@@ -38,8 +34,17 @@ def get_from_safari(url):
                 return pageSource
             end run'''
     
-    p = Popen(['osascript', '-'] + [url], stdin=PIPE, stdout=PIPE, stderr=PIPE)
+    p = Popen(['/usr/bin/osascript', '-'] + [url], stdin=PIPE, stdout=PIPE, stderr=PIPE)
     stdout, stderr = p.communicate(scpt.encode('utf-8'))
+    if stderr:
+        try:
+            err_text = stderr.decode("utf-8", errors="replace")
+            cache_dir = Path.home() / "Library" / "Caches" / "DoubanBookCovers"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            with open(str(cache_dir / "stderr.log"), "a") as f:
+                f.write(err_text + "\n")
+        except Exception:
+            pass
     return p.returncode, stdout, stderr
 
 class BookInfo:
@@ -103,12 +108,17 @@ class BookInfo:
         
         self.c = subject_item_source.contents
         
-        self.book_url = self.c[1].find_all('a', class_='nbg')[0].attrs['href'][:-1] # remove the trailing '/'
-        self.book_ID = self.book_url[self.book_url.rfind('/')+1:]        
-        self.book_cover_url = self.c[1].img.attrs['src'].replace('s/public', 'l/public') # get larger image
+        nbg_links = self.c[1].find_all('a', class_='nbg')
+        self.book_url = nbg_links[0].attrs['href'][:-1] if nbg_links else ""
+        self.book_ID = self.book_url[self.book_url.rfind('/')+1:] if self.book_url else ""
+        self.book_cover_url = ""
+        if getattr(self.c[1], "img", None) is not None and "src" in self.c[1].img.attrs:
+            self.book_cover_url = self.c[1].img.attrs['src'].replace('s/public', 'l/public') # get larger image
         
-        self.complete_date = self.c[3].find('span', class_='date').text.split('\n')[0]
-        self.book_title = self.c[3].a.text.replace('\n', '').lstrip().rstrip()
+        date_node = self.c[3].find('span', class_='date')
+        self.complete_date = date_node.text.split('\n')[0] if date_node else ""
+        title_node = self.c[3].find('a')
+        self.book_title = title_node.text.replace('\n', '').lstrip().rstrip() if title_node else ""
         self.book_title = ' '.join(self.book_title.split())
         
         self.rating = None
@@ -117,7 +127,10 @@ class BookInfo:
             if len(tmp_rating) != 0:
                 self.rating = i + 1
                 break
-        self.price_info = self.c[3].find('div', class_='pub').text.replace('\n', '').lstrip().rstrip().split(' / ')[-1]
+        pub_node = self.c[3].find('div', class_='pub')
+        self.price_info = ""
+        if pub_node:
+            self.price_info = pub_node.text.replace('\n', '').lstrip().rstrip().split(' / ')[-1]
     
     def __eq__(self, other):
         """ Overload comparison operator = """
@@ -245,7 +258,7 @@ class App(QtWidgets.QMainWindow):
         self.date1_label.setObjectName("date1_label")
 
         nl += 1
-        self.start_date = QtWidgets.QPlainTextEdit('2020-07-01', self)
+        self.start_date = QtWidgets.QPlainTextEdit(dt.now().strftime("%Y-01-01"), self)
         self.start_date.setGeometry(QtCore.QRect(inbox_x_pos, 20+nl*gspace+ng*hspace, 220, inbox_height))
         self.start_date.setObjectName("start_date")
 
@@ -256,7 +269,7 @@ class App(QtWidgets.QMainWindow):
         self.date2_label.setObjectName("date2_label")
         
         nl += 1
-        self.end_date = QtWidgets.QPlainTextEdit('2020-12-31', self)
+        self.end_date = QtWidgets.QPlainTextEdit(dt.now().strftime("%Y-%m-%d"), self)
         self.end_date.setGeometry(QtCore.QRect(inbox_x_pos, 20+nl*gspace+ng*hspace, 220, inbox_height))
         self.end_date.setObjectName("end_date")
         
@@ -296,6 +309,8 @@ class App(QtWidgets.QMainWindow):
 
     @pyqtSlot()
     def on_click(self):
+        import matplotlib.pyplot as plt
+
         self.uid = self.user_id.toPlainText()
         self.date1 = self.start_date.toPlainText()
         self.date2 = self.end_date.toPlainText()
@@ -412,17 +427,17 @@ class App(QtWidgets.QMainWindow):
                                 if tmp_price[:3] == 'CNY':
                                     tmp_price = tmp_price[3:]
                                 if tmp_price[:3] == 'USD':
-                                    tmp_price = str(float(tmp_price[3:]) * 6.6)
+                                    tmp_price = str(float(tmp_price[3:]) * 7.0)
                                 if tmp_price[0] == '$':
-                                    tmp_price = str(float(tmp_price[1:]) * 6.6)
+                                    tmp_price = str(float(tmp_price[1:]) * 7.0)
                                 if tmp_price[:3] == 'GBP':
-                                    tmp_price = str(float(tmp_price[3:]) * 9.0)
+                                    tmp_price = str(float(tmp_price[3:]) * 9.4)
                                 if tmp_price[:3] == 'NTD':
-                                    tmp_price = str(float(tmp_price[3:]) / 5.0)
+                                    tmp_price = str(float(tmp_price[3:]) / 4.5)
                                 if tmp_price[-2:] == '台币':
-                                    tmp_price = str(float(tmp_price[:-2]) / 5.0)
+                                    tmp_price = str(float(tmp_price[:-2]) / 4.5)
                                 if tmp_price[:3] == 'NT$':
-                                    tmp_price = str(float(tmp_price[3:]) / 5.0)
+                                    tmp_price = str(float(tmp_price[3:]) / 4.5)
                                 if tmp_price[:3] == 'HKD':
                                     tmp_price = str(float(tmp_price[3:]) * 0.9)
                                 if tmp_price[:3] == 'HK$':
@@ -456,6 +471,10 @@ class App(QtWidgets.QMainWindow):
         return None        
     
     def get_read(self):
+        import matplotlib.pyplot as plt
+        import requests
+        from PIL import Image
+        from io import BytesIO
 
         try:
             self.__sd = dt.strptime(self.date1, "%Y-%m-%d")
@@ -554,16 +573,52 @@ class App(QtWidgets.QMainWindow):
         
         # get all images for books
         self.status_label.setText("现在按序获取封面墙的"+str(self.num_books)+"图书封面")
-        headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36'}
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+            'Referer': 'https://book.douban.com/',
+            'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+        }
+        session = requests.Session()
         self.book_covers = []
+        self.valid_books_with_covers = []
+        total_books = self.num_books
         for i, item in enumerate(self.valid_books):
             q_sleep(0.5 + random.random())
             img_url = item.book_cover_url
-            self.book_covers.append(Image.open(BytesIO(requests.get(img_url, headers=headers).content)))
-            self.book_covers[-1].thumbnail((500, 325), Image.ANTIALIAS)
-            self.progress.setValue(min(40+int(25 * i / self.num_books), 65))
+            try:
+                resp = None
+                for attempt in range(3):
+                    try:
+                        resp = session.get(img_url, headers=headers, timeout=10)
+                        if resp.status_code == 418 or resp.status_code == 403:
+                            raise ValueError("Blocked status: " + str(resp.status_code))
+                        resp.raise_for_status()
+                        content_type = resp.headers.get("Content-Type", "")
+                        if not content_type.startswith("image/"):
+                            raise ValueError("Non-image content type: " + content_type)
+                        break
+                    except Exception:
+                        if attempt < 2:
+                            q_sleep(1 + attempt * 2 + random.random())
+                            continue
+                        raise
+                img = Image.open(BytesIO(resp.content))
+                img.thumbnail((500, 325), Image.Resampling.LANCZOS)
+                self.book_covers.append(img)
+                self.valid_books_with_covers.append(item)
+            except Exception as e:
+                print("Cover fetch failed: title={0} url={1} cover={2} err={3}".format(
+                    item.book_title, item.book_url, img_url, e))
+                continue
+
+            self.progress.setValue(min(40+int(25 * i / total_books), 65))
             QtWidgets.QApplication.processEvents()
-            self.status_label.setText("已获取"+str(i+1)+'/'+str(self.num_books)+"封面图片"+'。'*(i%3+1))
+            self.status_label.setText("已获取"+str(i+1)+'/'+str(total_books)+"封面图片"+'。'*(i%3+1))
+
+        self.valid_books = self.valid_books_with_covers
+        self.num_books = len(self.valid_books)
+        if self.num_books == 0:
+            return 5
         
         self.progress.setValue(65)
         self.status_label.setText("成功获取所有封面墙所需图片！开始绘制。")
